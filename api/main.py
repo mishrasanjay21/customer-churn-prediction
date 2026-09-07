@@ -9,6 +9,7 @@ from src.predict import load_model, predict
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MODEL_PATH = PROJECT_ROOT / "models" / "churn_model.pkl"
 model = None
+customers_db = {}
 
 
 @asynccontextmanager
@@ -22,6 +23,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title="Customer Churn Prediction API", version="1.0.0", lifespan=lifespan
 )
+
 
 class CustomerData(BaseModel):
     gender: str | None = None
@@ -44,9 +46,52 @@ class CustomerData(BaseModel):
     MonthlyCharges: float | None = None
     TotalCharges: float | None = None
 
+
 @app.get("/health")
 def health():
     return {"status": "ok", "model_loaded": model is not None}
+
+
+@app.get("/customers")
+def list_customers():
+    return list(customers_db.values())
+
+
+@app.get("/customers/{customer_id}")
+def get_customer(customer_id: int):
+    customer = customers_db.get(customer_id)
+    if customer is None:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    return customer
+
+
+@app.post("/customers")
+def create_customer(customer: CustomerData):
+    customer_id = max(customers_db, default=0) + 1
+    customer_data = customer.model_dump(exclude_none=True)
+    customer_data["id"] = customer_id
+    customers_db[customer_id] = customer_data
+    return customer_data
+
+
+@app.put("/customers/{customer_id}")
+def update_customer(customer_id: int, customer: CustomerData):
+    if customer_id not in customers_db:
+        raise HTTPException(status_code=404, detail="Customer not found")
+
+    update_data = customer.model_dump(exclude_none=True)
+    customers_db[customer_id].update(update_data)
+    customers_db[customer_id]["id"] = customer_id
+    return customers_db[customer_id]
+
+
+@app.delete("/customers/{customer_id}")
+def delete_customer(customer_id: int):
+    if customer_id not in customers_db:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    del customers_db[customer_id]
+    return {"detail": "Customer deleted successfully"}
+
 
 @app.post("/predict")
 def predict_churn(customer: CustomerData):
